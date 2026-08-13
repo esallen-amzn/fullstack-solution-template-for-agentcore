@@ -1,195 +1,224 @@
-# Fullstack AgentCore Solution Template (FAST)
+# FAST Harness Proxy — AgentCore Harness Web UI
 
-_Author's note: for the official name for this solution is the "Fullstack Solution Template for Agentcore" but it is referred to throughout this code base as FAST for convenience._
+Connect a React chat frontend to any [Amazon Bedrock AgentCore Harness](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html) agent via a Lambda proxy.
 
-The Fullstack AgentCore Solution Template (FAST) is a starter project repository that enables users (delivery scientists and engineers) to quickly deploy a secured, web-accessible React frontend connected to an AgentCore backend. Its purpose is to accelerate building full stack applications on AgentCore from weeks to days by handling the undifferentiated heavy lifting of infrastructure setup and to enable vibe-coding style development on top. The only central dependency of FAST is AgentCore. It is agnostic to agent SDK (Strands, LangGraph, etc) and to coding assistant platforms (Q, Kiro, Cline, Claude Code, etc).
-
-FAST is designed with security and vibe-codability as primary tenets. Best practices and knowledge from experts are codified in _documentation_ in this repository rather than in _code_. By including this documentation in an AI coding assistant's context, or by instructing the AI coding assistant to leverage best practices and code snippets found in the documentation, delivery scientists and developers can quickly vibe-build AgentCore applications for any use case. AI coding assistants can be used to fully customize the frontend and the infrastructure, enabling scientists to focus the areas where their knowledge is most impactful: the actual prompt engineering and GenAI implementation details.
-
-With FAST as a starting point and development framework, delivery scientists and engineers will accelerate their development process and deliver production quality AgentCore code following architecture and security best practices without having to learn any frontend or infrastructure code.
-
-## FAST Baseline System
-
-FAST comes deployable out-of-the-box with a fully functioning, full-stack application. This application represents starts as a basic multi-turn chat agent where the backend agent has access to tools. **Do not let this deter you, even if your use case is entirely different! If your application requires AgentCore, customizing FAST to any use case is extremely straightforward. That is the intended use of FAST!**
-
-The application is intentionally kept very, very simple to allow developers to easily build up whatever they want on top of the baseline. The tools shipped out of the box include:
-
-1. **Gateway Tools** - Lambda-based tools behind AgentCore Gateway with authentication:
-   - Text analysis tool (counts words and letter frequency)
-   
-2. **Code Interpreter** - Direct integration with Amazon Bedrock AgentCore Code Interpreter:
-   - Secure Python code execution in isolated sandbox
-   - Session management with state persistence
-   - Pre-built runtime with common libraries
-
-Try asking the agent to analyze text or execute Python code to see these tools in action.
-
-
-## FAST User Setup
-
-If you are a delivery scientist or engineer who wants to use FAST to build a full stack application, this is the section for you.
-
-FAST is designed to be forked and deployed out of the box with a security-approved baseline system working. Your task will be to customize it to create your own full stack application to do (literally) anything on AgentCore.
-
-Deploying the full stack out-of-the-box FAST baseline system is only a few cdk commands once you have forked the repo, namely: 
-
-```bash
-cd infra-cdk
-npm install
-cdk bootstrap # Once ever
-cdk deploy
-cd ..
-python scripts/deploy-frontend.py
-```
-
-See the [deployment guide](docs/DEPLOYMENT.md) for detailed instructions on how to deploy FAST into an AWS account.
-
-> **Terraform alternative:** FAST also supports Terraform for infrastructure deployment. See [`infra-terraform/README.md`](infra-terraform/README.md) for the Terraform deployment guide. We recommend choosing one infrastructure tool and deleting the other directory (`infra-cdk/` or `infra-terraform/`) from your fork to keep things clean.
-
-What comes next? That's up to you, the developer. With your requirements in mind, open up your coding assistant, describe what you'd like to do, and begin. The steering docs in this repository help guide coding assistants with best practices, and encourage them to always refer to the documentation built-in to the repository to make sure you end up building something great.
+Based on the [Fullstack AgentCore Solution Template (FAST)](https://github.com/awslabs/fullstack-solution-template-for-agentcore) — adapted for the **Harness proxy pattern** where the agent already exists in AgentCore Harness and doesn't need to be deployed as a container.
 
 ## Architecture
 
-![Architecture Diagram](docs/architecture-diagram/FAST-architecture-20260403.png)
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────────────┐
+│  React Frontend │────▶│  API Gateway     │────▶│  Lambda Proxy               │
+│  (localhost or  │     │  + Cognito JWT   │     │  (InvokeHarness → SSE)      │
+│   CloudFront)   │     │  authorizer      │     │                             │
+└─────────────────┘     └──────────────────┘     └──────────────┬──────────────┘
+                                                                 │
+                                                                 ▼
+                                                  ┌─────────────────────────────┐
+                                                  │  AgentCore Harness          │
+                                                  │  (your existing agent)      │
+                                                  └─────────────────────────────┘
+```
 
-The out-of-the-box architecture is shown above. The diagram illustrates the authentication flows across the stack:
-1. User login to the frontend (Cognito User Pool — Authorization Code grant): The user authenticates with Cognito via the web application hosted on AWS Amplify. Cognito issues a JWT access token for the session.
-2. Frontend to AgentCore Runtime (Cognito User Pool JWT validation): The frontend passes the user's JWT in the Authorization header. The Runtime validates the token against the Cognito User Pool.
-3. AgentCore Runtime to AgentCore Gateway (OAuth2 Client Credentials / M2M): The Runtime authenticates using the OAuth2 Client Credentials grant with user identity propagated into the M2M token via the Cognito V3 Pre-Token Lambda. The Gateway evaluates Cedar policies against the user's claims to enforce fine-grained access control.
-4. Frontend to API Gateway (Cognito User Pool JWT validation): API requests are authenticated using a Cognito User Pools Authorizer with the same user JWT from Flow 1.
+**Why a proxy?** The FAST frontend expects SSE `data:` lines (InvokeAgentRuntime format), but Harness emits typed events (`messageStart`, `contentBlockDelta`, `messageStop`). The Lambda translates between formats.
 
-### Tech Stack
+---
 
-- **Frontend**: React with TypeScript, Vite, Tailwind CSS, and shadcn components - infinitely flexible and ready for coding assistants
-- **Agent Providers**: Multiple agent providers supported (Strands, LangGraph, etc.) running within AgentCore Runtime
-- **Authentication**: AWS Cognito User Pool with OAuth support for easy swapping out Cognito
-- **Infrastructure**: CDK deployment with Amplify Hosting for frontend and AgentCore backend ([Terraform also supported](infra-terraform/README.md))
+## Prerequisites
+
+- **AWS CLI v2** configured with credentials
+- **Node.js 18+** and npm
+- **Python 3.12+**
+- **AWS CDK v2**: `npm install -g aws-cdk`
+- **An existing AgentCore Harness agent** (deployed and in READY status)
+- **Finch** (optional — for container builds if needed)
+
+---
+
+## Quick Start
+
+### 1. Clone and configure
+
+```bash
+git clone <this-repo-url>
+cd fast-illumina
+
+# Set up infrastructure env vars
+cp infra/.env.example infra/.env
+# Edit infra/.env with your account, harness ID, etc.
+```
+
+### 2. Deploy the stack
+
+```bash
+cd infra
+source .env
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cdk bootstrap aws://$HARNESS_ACCOUNT/$HARNESS_REGION  # first time only
+cdk deploy
+```
+
+Note the outputs:
+```
+FastHarnessProxyStack.ApiUrl = https://XXXXXXXXXX.execute-api.us-east-1.amazonaws.com/
+FastHarnessProxyStack.UserPoolId = us-east-1_XXXXXXXX
+FastHarnessProxyStack.UserPoolClientId = XXXXXXXXXXXXXXXXXX
+```
+
+### 3. Configure Cognito callback URLs
+
+```bash
+aws cognito-idp update-user-pool-client \
+  --user-pool-id <UserPoolId from output> \
+  --client-id <UserPoolClientId from output> \
+  --callback-urls '["http://localhost:3000"]' \
+  --logout-urls '["http://localhost:3000"]' \
+  --allowed-o-auth-flows code \
+  --allowed-o-auth-scopes openid email profile \
+  --allowed-o-auth-flows-user-pool-client \
+  --supported-identity-providers COGNITO \
+  --region us-east-1
+```
+
+### 4. Configure the frontend
+
+```bash
+cp frontend/public/aws-exports.json.example frontend/public/aws-exports.json
+```
+
+Edit `frontend/public/aws-exports.json` with your deploy outputs:
+
+```json
+{
+  "agentRuntimeArn": "https://XXXXXXXXXX.execute-api.us-east-1.amazonaws.com",
+  "awsRegion": "us-east-1",
+  "agentPattern": "strands-single-agent",
+  "authority": "https://cognito-idp.us-east-1.amazonaws.com/<UserPoolId>",
+  "client_id": "<UserPoolClientId>",
+  "redirect_uri": "http://localhost:3000",
+  "post_logout_redirect_uri": "http://localhost:3000",
+  "response_type": "code",
+  "scope": "email openid profile"
+}
+```
+
+### 5. Create a user
+
+```bash
+aws cognito-idp admin-create-user \
+  --user-pool-id <UserPoolId> \
+  --username user@example.com \
+  --user-attributes Name=email,Value=user@example.com \
+  --temporary-password 'TempPass123!' \
+  --region us-east-1
+
+aws cognito-idp admin-set-user-password \
+  --user-pool-id <UserPoolId> \
+  --username user@example.com \
+  --password 'YourPassword123!' \
+  --permanent \
+  --region us-east-1
+```
+
+### 6. Run the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`, sign in, and chat with your harness agent.
+
+---
+
+## Production Deployment (CloudFront)
+
+To make the UI accessible without running a local dev server:
+
+1. Deploy the frontend to S3 + CloudFront:
+   ```bash
+   python scripts/deploy-frontend.py --region us-east-1
+   ```
+
+2. Update Cognito callback URLs to your CloudFront domain:
+   ```bash
+   aws cognito-idp update-user-pool-client \
+     --user-pool-id <UserPoolId> \
+     --client-id <UserPoolClientId> \
+     --callback-urls '["https://d1XXXXXXXXXX.cloudfront.net"]' \
+     --logout-urls '["https://d1XXXXXXXXXX.cloudfront.net"]' \
+     ...
+   ```
+
+3. Update `aws-exports.json` redirect URIs to match.
+
+4. Restrict CORS in `harness_proxy_stack.py` to your CloudFront domain (replace `"*"`).
+
+---
 
 ## Project Structure
 
 ```
-fullstack-agentcore-solution-template/
-├── .amazonq/               # Amazon Q assistant rules
-├── .github/                # GitHub Actions workflows
-│   └── workflows/
-├── docker/                 # Docker development environment
-│   ├── docker-compose.yml  # Local development stack
-│   └── Dockerfile.frontend.dev # Frontend development container
-├── frontend/               # React frontend application
-│   ├── src/
-│   │   ├── app/            # Application pages
-│   │   ├── components/     # React components (shadcn/ui)
-│   │   ├── hooks/          # Custom React hooks
-│   │   ├── lib/            # Utility libraries
-│   │   │   └── agentcore-client/ # AgentCore streaming client
-│   │   ├── routes/         # React Router routes
-│   │   ├── services/       # API service layers
-│   │   ├── styles/         # Global styles
-│   │   ├── test/           # Frontend tests
-│   │   └── types/          # TypeScript type definitions
-│   ├── public/             # Static assets
-│   ├── components.json     # shadcn/ui configuration
-│   ├── vite.config.ts      # Vite configuration
-│   └── package.json
-├── infra-cdk/              # CDK infrastructure code
-│   ├── lib/                # CDK stack definitions
-│   │   ├── utils/          # Shared CDK utilities
-│   │   ├── amplify-hosting-stack.ts
-│   │   ├── backend-stack.ts
-│   │   ├── cognito-stack.ts
-│   │   └── fast-main-stack.ts
-│   ├── bin/                # CDK app entry point
-│   ├── lambdas/            # Lambda function code
-│   │   ├── cedar-policy/    # Cedar Policy Engine lifecycle
-│   │   ├── oauth2-provider/ # OAuth2 Credential Provider lifecycle
-│   │   ├── pretoken-v3/     # Cognito V3 Pre-Token Generation Lambda
-│   │   ├── feedback/       # Feedback API handler
-│   │   └── zip-packager/   # Runtime ZIP packager
-│   └── config.yaml         # Deployment configuration
-├── infra-terraform/        # Terraform infrastructure (alternative to CDK)
-│   ├── modules/            # Terraform modules
-│   │   ├── amplify-hosting/ # Amplify Hosting module
-│   │   ├── cognito/        # Cognito User Pool module
-│   │   └── backend/        # Backend resources module
-│   ├── scripts/            # Terraform-specific deployment scripts
-│   ├── lambdas/            # Terraform-specific Lambda code
-│   ├── terraform.tfvars.example # Example variable file
-│   └── README.md           # Terraform deployment guide
-├── patterns/               # Agent pattern implementations
-│   ├── strands-single-agent/ # Basic strands agent pattern
-│   │   ├── basic_agent.py  # Agent implementation
-│   │   ├── strands_code_interpreter.py # Code Interpreter wrapper
-│   │   ├── requirements.txt # Agent dependencies
-│   │   └── Dockerfile      # Container configuration
-│   ├── langgraph-single-agent/ # LangGraph agent pattern
-│   │   ├── langgraph_agent.py # Agent implementation
-│   │   ├── requirements.txt # Agent dependencies
-│   │   └── Dockerfile      # Container configuration
-│   └── utils/              # Shared agent utilities
-│       ├── auth.py         # Authentication helpers
-│       └── ssm.py          # SSM parameter helpers
-├── tools/                  # Reusable tools (framework-agnostic)
-│   └── code_interpreter/   # AgentCore Code Interpreter integration
-│       └── code_interpreter_tools.py # Core implementation
-├── gateway/                # Gateway utilities and tools
-│   ├── policies/           # Cedar policy definitions
-│   │   └── policy.cedar    # Department-based access control policy
-│   └── tools/              # Gateway tool implementations
-│       └── sample_tool/    # Example Gateway tool
-├── scripts/                # Deployment and utility scripts
-│   ├── deploy-frontend.py  # Cross-platform frontend deployment
-│   └── utils.py            # Shared script utilities
-├── test-scripts/           # Testing scripts
-│   ├── test-agent.py       # Agent testing
-│   ├── test-feedback-api.py # Feedback API testing
-│   ├── test-gateway.py     # Gateway testing
-│   └── test-memory.py      # Memory testing
-├── tests/                  # Test suite
-│   ├── unit/               # Unit tests
-│   ├── integration/        # Integration tests
-│   └── conftest.py         # Pytest configuration
-├── docs/                   # Documentation source files
-│   ├── architecture-diagram/ # Architecture diagrams
-│   ├── DEPLOYMENT.md       # Deployment guide
-│   ├── LOCAL_DEVELOPMENT.md # Local development guide
-│   ├── AGENT_CONFIGURATION.md # Agent setup guide
-│   ├── MEMORY_INTEGRATION.md # Memory integration guide
-│   ├── GATEWAY.md          # Gateway integration guide
-│   ├── IDENTITY_POLICY.md  # Identity propagation & Cedar policy guide
-│   ├── CEDAR_POLICY_GUIDE.md # Cedar policy syntax, capabilities & reference
-│   ├── REPLACING_COGNITO.md # Identity provider swap & Gateway interceptors guide
-│   ├── RUNTIME_GATEWAY_AUTH.md # M2M authentication workflow
-│   ├── SESSION_MANAGEMENT.md # Session persistence & resumption guide
-│   ├── CONTEXT_MANAGEMENT.md # Context window management guide
-│   ├── STREAMING.md        # Streaming implementation guide
-│   ├── TOOL_AC_CODE_INTERPRETER.md # Code Interpreter guide
-│   └── VERSION_BUMP_PLAYBOOK.md # Version management
-├── .mkdocs/                # MkDocs build configuration
-│   ├── mkdocs.yml          # MkDocs configuration
-│   ├── requirements.txt    # Documentation dependencies
-│   └── Makefile            # Build and deployment commands
-├── vibe-context/           # AI coding assistant context and rules
-│   ├── AGENTS.md           # Rules for AI assistants
-│   ├── coding-conventions.md # Code style guidelines
-│   └── development-best-practices.md # Development guidelines
-├── .kiro/                  # Kiro CLI configuration
-├── CHANGELOG.md            # Version history
-├── Makefile                # Project-level build commands
-└── README.md
+fast-illumina/
+├── frontend/                    # React chat UI (Vite + Tailwind + shadcn)
+│   ├── public/
+│   │   └── aws-exports.json.example  # Template for frontend config
+│   └── src/
+│       └── lib/agentcore-client/     # Modified streaming client → proxy
+├── lambda/
+│   └── harness_proxy/
+│       ├── handler.py           # InvokeHarness → SSE translator
+│       └── requirements.txt
+├── infra/
+│   ├── harness_proxy_stack.py   # CDK: Lambda + API GW + Cognito
+│   ├── .env.example             # Template for deployment config
+│   ├── cdk.json
+│   └── requirements.txt
+├── infra-cdk/                   # Original FAST CDK (not used in this pattern)
+└── docs/                        # FAST documentation (reference)
 ```
 
-## DeepWiki
-Have a question about how FAST works? Consider asking DeepWiki!
+---
 
+## How It Works
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/awslabs/fullstack-solution-template-for-agentcore)
+1. User sends a message in the React chat UI
+2. Frontend sends POST to `<ApiUrl>/invoke` with JWT auth header
+3. API Gateway validates the Cognito JWT
+4. Lambda calls `invoke_harness()` with the user's message
+5. Harness streams typed events (`contentBlockDelta`, etc.)
+6. Lambda translates each event to SSE `data: {"data": "text"}` format
+7. Frontend SSE parser renders the streamed text in the chat bubble
 
-## Security
+---
 
-Note: this asset represents a proof-of-value for the services included and is not intended as a production-ready solution. You must determine how the AWS Shared Responsibility applies to their specific use case and implement the needed controls to achieve their desired security outcomes. AWS offers a broad set of security tools and configurations to enable our customers.
+## Troubleshooting
 
-Ultimately it is your responsibility as the developer of a full stack application to ensure all of its aspects are secure. We provide security best practices in repository documentation and provide a secure baseline but Amazon holds no responsibility for the security of applications built from this tool.
+| Issue | Fix |
+|-------|-----|
+| `AccessDeniedException` on InvokeHarness | Lambda role needs `bedrock-agentcore:InvokeHarness` on your harness ARN |
+| CORS errors in browser | Check API Gateway CORS matches your frontend origin |
+| 401 from API Gateway | Verify Cognito JWT is valid and audience matches client ID |
+| No response / timeout | Increase Lambda timeout; check if harness tools (MCP servers) are reachable |
+| Sign-in button does nothing | Verify Cognito domain exists and callback URLs match your dev server port |
+| "Site can't be reached" after login | Dev server isn't running or is on a different port |
+
+---
+
+## Adapting for Other Harness Agents
+
+This pattern works for **any** AgentCore Harness agent. To point at a different agent:
+
+1. Update `HARNESS_ID` in `infra/.env`
+2. `source infra/.env && cd infra && cdk deploy`
+3. Done — the Lambda will invoke the new harness
+
+---
 
 ## License
 
-This project is licensed under the Apache-2.0 License.
+This project is based on the [Fullstack AgentCore Solution Template](https://github.com/awslabs/fullstack-solution-template-for-agentcore) (Apache-2.0).
