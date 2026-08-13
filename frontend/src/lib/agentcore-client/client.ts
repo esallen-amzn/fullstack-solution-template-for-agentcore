@@ -19,14 +19,10 @@ function getParser(pattern: AgentPattern): ChunkParser {
 
 export class AgentCoreClient {
   private runtimeArn: string
-  private region: string
-  private pattern: AgentPattern
   private parser: ChunkParser
 
   constructor(config: AgentCoreConfig) {
     this.runtimeArn = config.runtimeArn
-    this.region = config.region ?? "us-east-1"
-    this.pattern = config.pattern
     this.parser = getParser(config.pattern)
   }
 

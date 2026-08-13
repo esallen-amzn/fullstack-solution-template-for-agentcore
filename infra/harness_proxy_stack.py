@@ -30,6 +30,8 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+from amplify_hosting_construct import AmplifyHostingConstruct
+
 
 class HarnessProxyStack(Stack):
     """
@@ -77,6 +79,16 @@ class HarnessProxyStack(Stack):
             removal_policy=RemovalPolicy.RETAIN,
         )
 
+        # ----------------------------------------------------------------------
+        # Amplify Hosting (frontend)
+        # Ported from infra-cdk/lib/amplify-hosting-construct.ts
+        # ----------------------------------------------------------------------
+        amplify_hosting = AmplifyHostingConstruct(
+            self,
+            "AmplifyHosting",
+            app_name_prefix="fast-harness",
+        )
+
         user_pool_client = user_pool.add_client(
             "IlluminaHarnessAppClient",
             user_pool_client_name="fast-harness-frontend",
@@ -90,6 +102,14 @@ class HarnessProxyStack(Stack):
                     implicit_code_grant=True,
                 ),
                 scopes=[cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+                callback_urls=[
+                    "http://localhost:3000",
+                    amplify_hosting.amplify_url,
+                ],
+                logout_urls=[
+                    "http://localhost:3000",
+                    amplify_hosting.amplify_url,
+                ],
             ),
         )
 
@@ -221,6 +241,42 @@ class HarnessProxyStack(Stack):
             self, "LambdaFunctionArn",
             value=proxy_function.function_arn,
             description="Proxy Lambda ARN",
+        )
+
+        # Aliases matching the names scripts/deploy-frontend.py expects, so the
+        # existing FAST deploy-frontend.py script can target this stack directly.
+        CfnOutput(
+            self, "CognitoUserPoolId",
+            value=user_pool.user_pool_id,
+            description="Cognito User Pool ID (deploy-frontend.py alias)",
+        )
+        CfnOutput(
+            self, "CognitoClientId",
+            value=user_pool_client.user_pool_client_id,
+            description="Cognito App Client ID (deploy-frontend.py alias)",
+        )
+        CfnOutput(
+            self, "RuntimeArn",
+            value=http_api.api_endpoint,
+            description=(
+                "Repurposed as the harness proxy base URL — the frontend "
+                "appends /invoke to this value"
+            ),
+        )
+        CfnOutput(
+            self, "AmplifyUrl",
+            value=amplify_hosting.amplify_url,
+            description="Amplify Hosting app URL for the frontend",
+        )
+        CfnOutput(
+            self, "AmplifyAppId",
+            value=amplify_hosting.amplify_app.app_id,
+            description="Amplify App ID (deploy-frontend.py target)",
+        )
+        CfnOutput(
+            self, "StagingBucketName",
+            value=amplify_hosting.staging_bucket.bucket_name,
+            description="S3 bucket deploy-frontend.py uploads build artifacts to",
         )
 
 

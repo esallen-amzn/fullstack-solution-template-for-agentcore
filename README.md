@@ -135,28 +135,51 @@ Open `http://localhost:3000`, sign in, and chat with your harness agent.
 
 ---
 
-## Production Deployment (CloudFront)
+## Production Deployment (Amplify Hosting)
+
+`harness_proxy_stack.py` provisions an AWS Amplify Hosting app (ported from the
+original FAST `infra-cdk/lib/amplify-hosting-construct.ts`) alongside the
+Lambda proxy and Cognito pool. `cdk deploy` already creates the Amplify app,
+staging S3 bucket, and Cognito callback/logout URLs for it — no separate
+CloudFront setup is needed.
 
 To make the UI accessible without running a local dev server:
 
-1. Deploy the frontend to S3 + CloudFront:
+1. Redeploy the stack if you haven't already (this creates the Amplify app):
    ```bash
-   python scripts/deploy-frontend.py --region us-east-1
+   cd infra && source .env && cdk deploy
    ```
+   Note the new outputs: `AmplifyUrl`, `AmplifyAppId`, `StagingBucketName`.
 
-2. Update Cognito callback URLs to your CloudFront domain:
+2. Deploy the built frontend to Amplify using the existing FAST script,
+   pointing it at this stack:
+   ```bash
+   # From repo root
+   python scripts/deploy-frontend.py FastHarnessProxyStack
+   ```
+   This builds the React app, generates `aws-exports.json` from the stack
+   outputs, zips the build, uploads it to the staging bucket, and triggers
+   an Amplify deployment. It prints the app URL when done
+   (`https://main.<appId>.amplifyapp.com`).
+
+3. Cognito callback/logout URLs for the Amplify domain are already configured
+   by the CDK stack (`IlluminaHarnessAppClient`). If you use a custom domain
+   on Amplify later, add it explicitly:
    ```bash
    aws cognito-idp update-user-pool-client \
      --user-pool-id <UserPoolId> \
      --client-id <UserPoolClientId> \
-     --callback-urls '["https://d1XXXXXXXXXX.cloudfront.net"]' \
-     --logout-urls '["https://d1XXXXXXXXXX.cloudfront.net"]' \
-     ...
+     --callback-urls '["http://localhost:3000","https://main.<appId>.amplifyapp.com","https://your-custom-domain"]' \
+     --logout-urls '["http://localhost:3000","https://main.<appId>.amplifyapp.com","https://your-custom-domain"]' \
+     --allowed-o-auth-flows code \
+     --allowed-o-auth-scopes openid email profile \
+     --allowed-o-auth-flows-user-pool-client \
+     --supported-identity-providers COGNITO \
+     --region us-east-1
    ```
 
-3. Update `aws-exports.json` redirect URIs to match.
-
-4. Restrict CORS in `harness_proxy_stack.py` to your CloudFront domain (replace `"*"`).
+4. Restrict CORS in `harness_proxy_stack.py` to your Amplify domain in
+   production (replace the `allow_origins=["*"]` in `HarnessProxyApi`).
 
 ---
 

@@ -358,7 +358,6 @@ def generate_aws_exports(
         "CognitoUserPoolId",
         "AmplifyUrl",
         "RuntimeArn",
-        "FeedbackApiUrl",
     ]
     missing = [k for k in required if k not in outputs]
 
@@ -375,7 +374,10 @@ def generate_aws_exports(
         "automaticSilentRenew": True,
         "agentRuntimeArn": outputs["RuntimeArn"],
         "awsRegion": region,
-        "feedbackApiUrl": outputs["FeedbackApiUrl"],
+        # Optional: not all stacks (e.g. the harness proxy pattern) expose a
+        # separate feedback API. Falls back to "" which disables the feature
+        # in the frontend (see frontend/src/services/feedbackService.ts).
+        "feedbackApiUrl": outputs.get("FeedbackApiUrl", ""),
         "agentPattern": pattern,
     }
 
