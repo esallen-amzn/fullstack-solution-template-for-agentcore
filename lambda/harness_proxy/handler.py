@@ -26,6 +26,8 @@ This Lambda bridges the two formats.
 import json
 import logging
 import os
+import queue
+import threading
 import uuid
 import time
 import traceback
@@ -45,6 +47,15 @@ AGENT_NAME = os.environ.get("AGENT_NAME", "harness-agent")
 
 # Session ID minimum length enforced by AgentCore
 MIN_SESSION_ID_LENGTH = 33
+
+# Client-side cap on the TOTAL time (from the moment invoke_harness_and_translate
+# starts) we'll spend waiting on the Harness stream. This is a wall-clock budget,
+# not a per-event gap — a per-event timeout can still let total time blow past
+# API Gateway's 30s integration timeout if earlier events already consumed part
+# of the budget (e.g. a few tool-call round trips before a hang). Kept
+# comfortably under the API Gateway ceiling so we return a clean, translated
+# error before API Gateway kills the connection and returns a bare 503.
+HARNESS_STREAM_TIMEOUT_SECONDS = float(os.environ.get("HARNESS_STREAM_TIMEOUT_SECONDS", "22"))
 
 # --------------------------------------------------------------------------
 # Logging
@@ -232,17 +243,75 @@ def invoke_harness_and_translate(
         yield "data: [DONE]\n\n"
         return
 
-    # Process the event stream
+    # Process the event stream with a client-side per-event timeout.
+    #
+    # boto3's stream iterator blocks on network I/O and cannot be interrupted
+    # from the thread that's reading it. To enforce a timeout we consume the
+    # iterator on a background thread that pushes each event (or the terminal
+    # exception/sentinel) onto a queue, and read from that queue on the main
+    # thread with a deadline. If a downstream tool call hangs (e.g. an SSH
+    # connect timeout against an unreachable device), we bail out cleanly
+    # instead of blocking until API Gateway's 30s ceiling returns a bare 503.
     event_stream = response.get("output", {}).get("stream", response.get("stream", []))
-    
-    try:
-        for event in event_stream:
-            sse_lines = translate_harness_event(event)
-            for line in sse_lines:
-                yield f"data: {line}\n\n"
-    except Exception as e:
-        logger.error(f"Error processing event stream: {e}\n{traceback.format_exc()}")
-        yield f"data: {json.dumps({'type': 'error', 'error': f'Stream processing error: {str(e)}'})}\n\n"
+
+    _SENTINEL_DONE = object()
+    event_queue: "queue.Queue" = queue.Queue()
+
+    def _pump_stream():
+        try:
+            for event in event_stream:
+                event_queue.put(("event", event))
+        except Exception as e:  # noqa: BLE001 - forwarded to main thread as-is
+            event_queue.put(("error", e))
+        finally:
+            event_queue.put(("done", _SENTINEL_DONE))
+
+    pump_thread = threading.Thread(target=_pump_stream, daemon=True)
+    pump_thread.start()
+
+    # Wall-clock deadline for the ENTIRE stream, not a per-event gap. Using a
+    # per-event timeout alone can still exceed API Gateway's 30s ceiling if
+    # earlier events already consumed part of the budget before a hang.
+    deadline = time.monotonic() + HARNESS_STREAM_TIMEOUT_SECONDS
+
+    done_sent = False
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.error(
+                f"Exceeded total stream budget of {HARNESS_STREAM_TIMEOUT_SECONDS}s, "
+                f"session={session_id}. Likely a slow/unreachable downstream tool "
+                f"call (e.g. SSH to an unreachable device)."
+            )
+            yield f"data: {json.dumps({'type': 'error', 'error': 'The agent took too long to respond, possibly because a tool call (e.g. a device connection) is hanging. Please try again or verify device reachability.'})}\n\n"
+            break
+
+        try:
+            kind, payload = event_queue.get(timeout=remaining)
+        except queue.Empty:
+            logger.error(
+                f"Exceeded total stream budget of {HARNESS_STREAM_TIMEOUT_SECONDS}s "
+                f"waiting for next harness event, session={session_id}. Likely a "
+                f"slow/unreachable downstream tool call (e.g. SSH to an unreachable "
+                f"device)."
+            )
+            yield f"data: {json.dumps({'type': 'error', 'error': 'The agent took too long to respond, possibly because a tool call (e.g. a device connection) is hanging. Please try again or verify device reachability.'})}\n\n"
+            break
+
+        if kind == "done":
+            break
+        if kind == "error":
+            logger.error(f"Error processing event stream: {payload}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'error': f'Stream processing error: {str(payload)}'})}\n\n"
+            break
+
+        sse_lines = translate_harness_event(payload)
+        for line in sse_lines:
+            yield f"data: {line}\n\n"
+            if line == "[DONE]":
+                done_sent = True
+
+    if not done_sent:
         yield "data: [DONE]\n\n"
 
 
