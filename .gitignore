@@ -27,7 +27,15 @@ notebooks/examples/data
 **/node_modules
 **/.vite
 frontend/public/aws-exports.json
+!frontend/public/aws-exports.json.example
 .venv
 scripts/zip-artifact/
 public/
 .mkdocs/public/
+
+# Harness proxy deploy artifacts
+lambda/harness_proxy/handler.zip
+infra/.env
+
+# Local venv
+infra/.venv/

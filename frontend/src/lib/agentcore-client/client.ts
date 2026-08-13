@@ -43,41 +43,29 @@ export class AgentCoreClient {
     if (!accessToken) throw new Error("No valid access token found.")
     if (!this.runtimeArn) throw new Error("Agent Runtime ARN not configured.")
 
-    const endpoint = `https://bedrock-agentcore.${this.region}.amazonaws.com`
-    const escapedArn = encodeURIComponent(this.runtimeArn)
-    const url = `${endpoint}/runtimes/${escapedArn}/invocations?qualifier=DEFAULT`
+    // Proxy endpoint URL — loaded from aws-exports.json via the runtimeArn field
+    // (repurposed as the proxy URL when using harness proxy pattern)
+    const url = `${this.runtimeArn}/invoke`
 
-    const traceId = `1-${Math.floor(Date.now() / 1000).toString(16)}-${crypto.randomUUID()}`
-
-    // Build payload based on pattern — AG-UI protocol expects a different format
-    const body = this.pattern.startsWith("agui-")
-      ? {
-          threadId: sessionId,
-          runId: crypto.randomUUID(),
-          messages: [{ id: crypto.randomUUID(), role: "user", content: query }],
-          state: {},
-          tools: [],
-          context: [],
-          forwardedProps: {},
-        }
-      : {
-          prompt: query,
-          runtimeSessionId: sessionId,
-        }
+    const body = {
+      prompt: query,
+      sessionId: sessionId,
+    }
 
     // User identity is extracted server-side from the validated JWT token
     // (Authorization header), not sent in the payload body. This prevents
     // impersonation via prompt injection.
+    
     const response = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "X-Amzn-Trace-Id": traceId,
         "Content-Type": "application/json",
-        "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": sessionId,
       },
       body: JSON.stringify(body),
     })
+
+
 
     if (!response.ok) {
       const errorText = await response.text()

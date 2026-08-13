@@ -1,0 +1,11 @@
+{
+  "agentRuntimeArn": "https://YOUR_API_GATEWAY_ID.execute-api.us-east-1.amazonaws.com",
+  "awsRegion": "us-east-1",
+  "agentPattern": "strands-single-agent",
+  "authority": "https://cognito-idp.us-east-1.amazonaws.com/YOUR_USER_POOL_ID",
+  "client_id": "YOUR_COGNITO_CLIENT_ID",
+  "redirect_uri": "http://localhost:3000",
+  "post_logout_redirect_uri": "http://localhost:3000",
+  "response_type": "code",
+  "scope": "email openid profile"
+}

@@ -1,0 +1,6 @@
+{
+  "app": "python3 harness_proxy_stack.py",
+  "context": {
+    "@aws-cdk/core:stackRelativeExports": true
+  }
+}
