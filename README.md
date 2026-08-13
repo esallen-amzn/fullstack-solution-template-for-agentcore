@@ -4,6 +4,14 @@ Connect a React chat frontend to any [Amazon Bedrock AgentCore Harness](https://
 
 Based on the [Fullstack AgentCore Solution Template (FAST)](https://github.com/awslabs/fullstack-solution-template-for-agentcore) — adapted for the **Harness proxy pattern** where the agent already exists in AgentCore Harness and doesn't need to be deployed as a container.
 
+> **This README describes the actual deployment path for this fork.** The
+> `docs/` directory and `infra-cdk/` are carried over from the upstream FAST
+> template and describe a *different* deployment (container-based AgentCore
+> Runtime + full CDK stack) that this repo does not use. They're kept for
+> reference only — follow this README, not `docs/DEPLOYMENT.md`, when
+> deploying this harness proxy pattern. The actual infrastructure code lives
+> in `infra/harness_proxy_stack.py`.
+
 ## Architecture
 
 ```
@@ -31,7 +39,6 @@ Based on the [Fullstack AgentCore Solution Template (FAST)](https://github.com/a
 - **Python 3.12+**
 - **AWS CDK v2**: `npm install -g aws-cdk`
 - **An existing AgentCore Harness agent** (deployed and in READY status)
-- **Finch** (optional — for container builds if needed)
 
 ---
 
@@ -68,20 +75,15 @@ FastHarnessProxyStack.UserPoolId = us-east-1_XXXXXXXX
 FastHarnessProxyStack.UserPoolClientId = XXXXXXXXXXXXXXXXXX
 ```
 
-### 3. Configure Cognito callback URLs
+### 3. Cognito callback URLs
 
-```bash
-aws cognito-idp update-user-pool-client \
-  --user-pool-id <UserPoolId from output> \
-  --client-id <UserPoolClientId from output> \
-  --callback-urls '["http://localhost:3000"]' \
-  --logout-urls '["http://localhost:3000"]' \
-  --allowed-o-auth-flows code \
-  --allowed-o-auth-scopes openid email profile \
-  --allowed-o-auth-flows-user-pool-client \
-  --supported-identity-providers COGNITO \
-  --region us-east-1
-```
+`cdk deploy` already configures `CallbackURLs`/`LogoutURLs` on the app client
+(`http://localhost:3000` plus the Amplify Hosting URL — see [Production
+Deployment](#production-deployment-amplify-hosting) below). You don't need to
+run `aws cognito-idp update-user-pool-client` manually — doing so will be
+overwritten on the next `cdk deploy` since CDK owns this configuration. Only
+add URLs manually if you're using a custom domain not known at deploy time
+(see step 3 under Production Deployment).
 
 ### 4. Configure the frontend
 
@@ -197,12 +199,15 @@ fast-illumina/
 │       ├── handler.py           # InvokeHarness → SSE translator
 │       └── requirements.txt
 ├── infra/
-│   ├── harness_proxy_stack.py   # CDK: Lambda + API GW + Cognito
-│   ├── .env.example             # Template for deployment config
+│   ├── harness_proxy_stack.py       # CDK: Lambda + API GW + Cognito + Amplify
+│   ├── amplify_hosting_construct.py # CDK: Amplify app + staging S3 bucket
+│   ├── .env.example                 # Template for deployment config
 │   ├── cdk.json
 │   └── requirements.txt
 ├── infra-cdk/                   # Original FAST CDK (not used in this pattern)
-└── docs/                        # FAST documentation (reference)
+└── docs/                        # Original FAST documentation (reference only —
+                                  # describes the container-based deployment, not
+                                  # this harness proxy pattern)
 ```
 
 ---

@@ -4,11 +4,12 @@ CDK Stack: FAST Harness Proxy
 Deploys:
   - Lambda function (Python 3.12) with the harness proxy handler
   - API Gateway HTTP API with CORS
-  - Cognito User Pool authorizer (placeholder — wire to existing pool or create new)
+  - Cognito User Pool + App Client + Hosted UI domain (created by this stack)
+  - Amplify Hosting app + staging S3 bucket for the React frontend
   - IAM permissions for bedrock-agentcore:InvokeHarness
 
 Usage:
-  cd infra/ && source .env  # set HARNESS_ACCOUNT, HARNESS_ARN_SUFFIX, RUNTIME_ARN_SUFFIX
+  cd infra/ && source .env  # set HARNESS_ACCOUNT, HARNESS_REGION, HARNESS_ID, RUNTIME_ID
   cdk deploy
 """
 
@@ -59,8 +60,7 @@ class HarnessProxyStack(Stack):
         )
 
         # ----------------------------------------------------------------------
-        # Cognito User Pool (for Illumina team access)
-        # Replace with existing pool ARN if you already have one from FAST deploy
+        # Cognito User Pool (created and owned by this stack)
         # ----------------------------------------------------------------------
         user_pool = cognito.UserPool(
             self,
