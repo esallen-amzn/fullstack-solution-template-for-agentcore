@@ -36,6 +36,7 @@ public/
 # Harness proxy deploy artifacts
 lambda/harness_proxy/handler.zip
 infra/.env
+frontend/.env.local
 
 # Local venv
 infra/.venv/

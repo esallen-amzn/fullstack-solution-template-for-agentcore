@@ -64,8 +64,8 @@ class HarnessProxyStack(Stack):
         # ----------------------------------------------------------------------
         user_pool = cognito.UserPool(
             self,
-            "IlluminaHarnessUserPool",
-            user_pool_name="fast-harness-illumina-users",
+            "HarnessUserPool",
+            user_pool_name="fast-harness-users",
             self_sign_up_enabled=False,  # Admin-only user creation
             sign_in_aliases=cognito.SignInAliases(email=True),
             auto_verify=cognito.AutoVerifiedAttrs(email=True),
@@ -90,7 +90,7 @@ class HarnessProxyStack(Stack):
         )
 
         user_pool_client = user_pool.add_client(
-            "IlluminaHarnessAppClient",
+            "HarnessAppClient",
             user_pool_client_name="fast-harness-frontend",
             auth_flows=cognito.AuthFlow(
                 user_srp=True,
@@ -115,7 +115,7 @@ class HarnessProxyStack(Stack):
 
         # Cognito domain for Hosted UI
         user_pool.add_domain(
-            "IlluminaHarnessDomain",
+            "HarnessDomain",
             cognito_domain=cognito.CognitoDomainOptions(
                 domain_prefix=cognito_domain_prefix
             ),

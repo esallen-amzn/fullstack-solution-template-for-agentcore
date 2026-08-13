@@ -48,7 +48,7 @@ Based on the [Fullstack AgentCore Solution Template (FAST)](https://github.com/a
 
 ```bash
 git clone <this-repo-url>
-cd fast-illumina
+cd fast-harness
 
 # Set up infrastructure env vars
 cp infra/.env.example infra/.env
@@ -165,7 +165,7 @@ To make the UI accessible without running a local dev server:
    (`https://main.<appId>.amplifyapp.com`).
 
 3. Cognito callback/logout URLs for the Amplify domain are already configured
-   by the CDK stack (`IlluminaHarnessAppClient`). If you use a custom domain
+   by the CDK stack (`HarnessAppClient`). If you use a custom domain
    on Amplify later, add it explicitly:
    ```bash
    aws cognito-idp update-user-pool-client \
@@ -188,7 +188,7 @@ To make the UI accessible without running a local dev server:
 ## Project Structure
 
 ```
-fast-illumina/
+fast-harness/
 ├── frontend/                    # React chat UI (Vite + Tailwind + shadcn)
 │   ├── public/
 │   │   └── aws-exports.json.example  # Template for frontend config
